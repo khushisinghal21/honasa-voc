@@ -1,0 +1,9 @@
+# Cloud Build would otherwise reuse .gitignore and drop the DuckDB file the image needs.
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+reports/
+data/demo.duckdb
+data/sample/
+tests/

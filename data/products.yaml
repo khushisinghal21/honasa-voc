@@ -1,0 +1,85 @@
+# Products tracked by the POC. Edit freely.
+#   match_terms: lowercase phrases that indicate a comment is about this product
+#                (used to keep Reddit comments; the LLM relevance check does the rest)
+#   youtube.search_queries: used to discover review videos (each search costs 100 API quota units)
+#   youtube.video_ids: pin specific videos you've hand-picked (cheaper and higher quality)
+#   reddit: subreddits + queries. Verify the subreddits are active before a big run.
+products:
+  - id: me_rosemary_shampoo
+    brand: Mamaearth
+    name: Mamaearth Rosemary Anti-Hair Fall Shampoo
+    category: shampoo
+    is_competitor: false
+    match_terms: ["rosemary shampoo", "mamaearth rosemary"]
+    youtube:
+      search_queries: ["mamaearth rosemary shampoo review", "mamaearth rosemary shampoo honest review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts, IndianHaircareAddicts]
+      queries: ["mamaearth rosemary shampoo", "mamaearth rosemary"]
+
+  - id: me_teatree_facewash
+    brand: Mamaearth
+    name: Mamaearth Tea Tree Face Wash
+    category: face_wash
+    is_competitor: false
+    match_terms: ["tea tree face wash", "mamaearth tea tree", "tea tree facewash"]
+    youtube:
+      search_queries: ["mamaearth tea tree face wash review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts]
+      queries: ["mamaearth tea tree face wash", "mamaearth tea tree"]
+
+  - id: me_ubtan_facewash
+    brand: Mamaearth
+    name: Mamaearth Ubtan Face Wash
+    category: face_wash
+    is_competitor: false
+    match_terms: ["ubtan face wash", "mamaearth ubtan", "ubtan facewash"]
+    youtube:
+      search_queries: ["mamaearth ubtan face wash review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts]
+      queries: ["mamaearth ubtan"]
+
+  - id: tdc_hyaluronic_sunscreen
+    brand: The Derma Co
+    name: The Derma Co 1% Hyaluronic Sunscreen Aqua Gel
+    category: sunscreen
+    is_competitor: false
+    match_terms: ["derma co sunscreen", "dermaco sunscreen", "hyaluronic sunscreen", "derma co aqua gel"]
+    youtube:
+      search_queries: ["derma co hyaluronic sunscreen review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts]
+      queries: ["derma co sunscreen", "dermaco sunscreen"]
+
+  - id: aq_dewy_sunscreen
+    brand: Aqualogica
+    name: Aqualogica Glow+ Dewy Sunscreen
+    category: sunscreen
+    is_competitor: false
+    match_terms: ["aqualogica sunscreen", "aqualogica dewy", "glow+ dewy"]
+    youtube:
+      search_queries: ["aqualogica dewy sunscreen review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts]
+      queries: ["aqualogica sunscreen"]
+
+  # Competitor baseline so "compare_products" means something.
+  - id: comp_minimalist_sunscreen
+    brand: Minimalist
+    name: Minimalist SPF 50 Sunscreen
+    category: sunscreen
+    is_competitor: true
+    match_terms: ["minimalist sunscreen", "minimalist spf"]
+    youtube:
+      search_queries: ["minimalist spf 50 sunscreen review"]
+      video_ids: []
+    reddit:
+      subreddits: [IndianSkincareAddicts]
+      queries: ["minimalist sunscreen"]

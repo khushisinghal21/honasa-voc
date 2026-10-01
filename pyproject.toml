@@ -1,0 +1,43 @@
+[project]
+name = "honasa-voc"
+version = "0.1.0"
+description = "Voice of Consumer agent POC: aspect sentiment, themes, routing and an MCP server over public consumer comments"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.40",
+  "duckdb>=1.1",
+  "fastapi>=0.110",
+  "langgraph>=0.3",
+  "mcp>=2.0",
+  "numpy>=1.26",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "rank-bm25>=0.2.2",
+  "requests>=2.31",
+  "scikit-learn>=1.3",
+  "scipy>=1.11",
+  "sqlglot>=25.0",
+  "typer>=0.12",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+ml = ["sentence-transformers>=3.0"]
+reddit = ["praw>=7.7"]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[project.scripts]
+voc = "voc.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["voc*"]
+
+[tool.setuptools.package-data]
+voc = ["graph/routing_rules.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

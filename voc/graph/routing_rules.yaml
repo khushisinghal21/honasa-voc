@@ -1,0 +1,30 @@
+# Which team owns a theme. Rules are checked top to bottom; the first match wins.
+# `ambiguous: true` means rules give candidates and Claude picks one (with a one-line rationale).
+# In baseline mode the first candidate is used.
+keyword_overrides:
+  - keywords: [fake, duplicate, counterfeit, tampered, nakli, expired, expiry]
+    team: E-commerce & brand protection
+  - keywords: [rash, burn, allerg, swelling, itch, khujli, jalan]
+    team: R&D & product safety
+
+aspects:
+  efficacy:
+    ambiguous: true
+    candidates: [R&D, Marketing & claims]
+  skin_reaction:
+    team: R&D & product safety
+  fragrance:
+    team: R&D
+  texture:
+    team: R&D
+  packaging:
+    team: Packaging
+  price_value:
+    team: Revenue growth management
+  authenticity:
+    team: E-commerce & brand protection
+  delivery:
+    team: E-commerce & quick commerce ops
+
+# Positive themes go to marketing as proof points instead of being treated as problems.
+positive_team: Marketing & claims

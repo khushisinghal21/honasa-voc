@@ -1,0 +1,63 @@
+# Questions a brand or category manager might ask, with a hand-written gold query each.
+# The eval asks Claude to write SQL for each question and compares result sets (column names ignored).
+# Grow this to ~25 questions once you have real data, and include a few awkward ones.
+questions:
+  - question: How many relevant reviews does each product have? Return product_id and count.
+    gold_sql: |
+      SELECT product_id, count(*) AS n FROM extractions WHERE is_relevant GROUP BY product_id
+
+  - question: For each aspect, how many negative mentions are there across all products? Return aspect and count.
+    gold_sql: |
+      SELECT a.aspect, count(*) FROM aspects a JOIN extractions e USING (review_id)
+      WHERE e.is_relevant AND a.sentiment = 'negative' GROUP BY a.aspect
+
+  - question: Which product has the most negative packaging mentions? Return just the product_id.
+    gold_sql: |
+      SELECT a.product_id FROM aspects a JOIN extractions e USING (review_id)
+      WHERE e.is_relevant AND a.aspect = 'packaging' AND a.sentiment = 'negative'
+      GROUP BY a.product_id ORDER BY count(*) DESC LIMIT 1
+
+  - question: How many reviews are in Hinglish for each product? Return product_id and count.
+    gold_sql: |
+      SELECT product_id, count(*) FROM reviews WHERE lang = 'hinglish' GROUP BY product_id
+
+  - question: List the labels of all P1 themes.
+    gold_sql: |
+      SELECT t.label FROM themes t JOIN theme_metrics m USING (theme_id) WHERE m.priority = 'P1'
+
+  - question: How many tickets does each team own? Return team and count.
+    gold_sql: |
+      SELECT team, count(*) FROM tickets GROUP BY team
+
+  - question: What share of relevant reviews of me_teatree_facewash mention a negative skin reaction? Return a single percentage rounded to 1 decimal.
+    gold_sql: |
+      SELECT round(100.0 * count(DISTINCT a.review_id) / (SELECT count(*) FROM extractions
+             WHERE is_relevant AND product_id = 'me_teatree_facewash'), 1)
+      FROM aspects a JOIN extractions e USING (review_id)
+      WHERE e.is_relevant AND a.product_id = 'me_teatree_facewash'
+        AND a.aspect = 'skin_reaction' AND a.sentiment = 'negative'
+
+  - question: Count reviews by source. Return source and count.
+    gold_sql: |
+      SELECT source, count(*) FROM reviews GROUP BY source
+
+  - question: How many severity-3 aspect mentions does each product have? Return product_id and count, only for products that have at least one.
+    gold_sql: |
+      SELECT a.product_id, count(*) FROM aspects a JOIN extractions e USING (review_id)
+      WHERE e.is_relevant AND a.severity = 3 GROUP BY a.product_id
+
+  - question: Which negative theme has the most reviews? Return its label.
+    gold_sql: |
+      SELECT label FROM themes WHERE polarity = 'negative' ORDER BY n_reviews DESC LIMIT 1
+
+  - question: For the competitor product, what is the positive-to-negative mention ratio for texture? Return one number rounded to 2 decimals.
+    gold_sql: |
+      SELECT round(count(*) FILTER (WHERE a.sentiment = 'positive') * 1.0
+             / nullif(count(*) FILTER (WHERE a.sentiment = 'negative'), 0), 2)
+      FROM aspects a JOIN extractions e USING (review_id)
+      JOIN products p ON p.product_id = a.product_id
+      WHERE e.is_relevant AND p.is_competitor AND a.aspect = 'texture'
+
+  - question: How many approved tickets are there?
+    gold_sql: |
+      SELECT count(*) FROM tickets WHERE status = 'approved'
