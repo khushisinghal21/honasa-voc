@@ -9,7 +9,8 @@ from voc.serve import service
 
 INSTRUCTIONS = """Voice of Consumer data for Honasa products, built from public consumer comments.
 Workflow: call list_products first to get product_ids. Use top_themes for "what are people saying",
-theme_detail to get verbatim quotes with source links, compare_products for side-by-side questions,
+theme_detail to get verbatim quotes with source links, theme_changes for "what's new or getting worse",
+compare_products for side-by-side questions,
 search_reviews for anything specific. For custom numbers call get_schema, then run_metrics_sql
 (read-only SELECT only). When you state a finding, cite at least one quote and its source link.
 Counts come from public comments, which skew toward people with strong opinions; say so when relevant."""
@@ -36,6 +37,13 @@ def top_themes(product_id: str | None = None, aspect: str | None = None,
 def theme_detail(theme_id: str, max_quotes: int = 15) -> dict:
     """One theme's metrics, routing decision, any tickets, and the verbatim consumer quotes behind it (with source links)."""
     return service.theme_detail(theme_id, max_quotes)
+
+
+@mcp.tool(annotations=RO)
+def theme_changes(product_id: str | None = None, polarity: str = "negative") -> dict:
+    """What changed since the previous run: each consumer issue is new, growing, steady, shrinking or faded,
+    with review counts before and after. Use it for "what's new this week" or "what's getting worse"."""
+    return service.theme_changes(product_id, polarity)
 
 
 @mcp.tool(annotations=RO)

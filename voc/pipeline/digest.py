@@ -33,6 +33,48 @@ def _fmt_quote(q: dict) -> str:
     return f'  - "{q["evidence_span"]}" ({cite})'
 
 
+CHANGES_PER_KIND = 5
+
+
+def _changes(con) -> list[str]:
+    """Week-over-week view from theme tracking. Empty on the very first run (nothing to compare)."""
+    if con.execute("SELECT count(DISTINCT run_id) FROM theme_track_runs").fetchone()[0] < 2:
+        return []
+    def tracks(status: str, polarity: str = "negative") -> list[dict]:
+        return rows(con, f"""
+            SELECT tr.*, p.name, s.theme_id FROM theme_tracks tr JOIN products p USING (product_id)
+            LEFT JOIN theme_track_runs s ON s.track_id = tr.track_id AND s.run_id = tr.last_run_id
+            WHERE tr.status = ? AND tr.polarity = ?
+            ORDER BY {"tr.prev_n_reviews" if status in ("faded", "shrinking") else "tr.n_reviews"} DESC,
+                     tr.n_reviews - coalesce(tr.prev_n_reviews, 0) DESC
+            LIMIT {CHANGES_PER_KIND}
+        """, [status, polarity])
+
+    new, growing, faded = tracks("new"), tracks("growing"), tracks("faded")
+    counts = dict(con.execute("""SELECT status, count(*) FROM theme_tracks WHERE polarity = 'negative'
+                                 GROUP BY 1""").fetchall())
+    lines = ["## What changed since the last run", "",
+             f"Problem themes: **{counts.get('new', 0)} new**, **{counts.get('growing', 0)} growing**, "
+             f"{counts.get('steady', 0)} steady, {counts.get('shrinking', 0)} shrinking, "
+             f"{counts.get('faded', 0)} faded.", ""]
+    if new:
+        lines.append("**New problems**")
+        for t in new:
+            lines.append(f"- **{t['label']}** · {t['name']} · {t['n_reviews']} reviews")
+            lines += [_fmt_quote(q) for q in _quotes(con, t["theme_id"], 1)]
+        lines.append("")
+    if growing:
+        lines.append("**Getting worse**")
+        lines += [f"- **{t['label']}** · {t['name']} · {t['prev_n_reviews']} → {t['n_reviews']} reviews"
+                  for t in growing]
+        lines.append("")
+    if faded:
+        lines.append("**No longer showing up** (worth checking whether a fix landed)")
+        lines += [f"- {t['label']} · {t['name']} · was {t['prev_n_reviews']} reviews" for t in faded]
+        lines.append("")
+    return lines
+
+
 def build(con, period: str | None = None) -> str:
     period = period or f"{date.today().isocalendar().year}-W{date.today().isocalendar().week:02d}"
     sources = rows(con, "SELECT source, count(*) AS n FROM reviews GROUP BY 1 ORDER BY 2 DESC")
@@ -52,6 +94,8 @@ def build(con, period: str | None = None) -> str:
         if window[0] else "No reviews yet.",
         "",
     ]
+
+    lines += _changes(con)
 
     tickets = rows(con, """
         SELECT tk.priority, tk.team, tk.theme_label, tk.status, p.name

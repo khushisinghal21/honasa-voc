@@ -6,6 +6,11 @@
 
 P1 themes (safety/trust issues) pause at `human_review` using LangGraph's interrupt(): nothing is
 filed until a person approves it. That mirrors the human-in-the-loop approvals the role describes.
+
+Decisions stick to the *issue*, not the run. Theme ids change every run, so each theme is looked up
+on its track (pipeline/tracking.py). If a person already approved or rejected that issue, the decision
+is carried forward and the existing ticket is updated in place, instead of asking again every week.
+The one exception: if the issue is growing, the old decision is out of date and a person is asked again.
 """
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ from langgraph.types import Command, interrupt
 
 from voc.db import new_id, now, rows, run_step
 from voc.llm import get_llm, use_llm
+from voc.pipeline.tracking import track_of
 from voc.schemas import RoutingDecision
 
 log = logging.getLogger(__name__)
@@ -41,6 +47,9 @@ class InsightState(TypedDict, total=False):
     decision: dict
     ticket_id: str
     status: str
+    track: dict            # stable identity of this issue across runs
+    prior: dict            # an earlier human decision on the same track, if any
+    carried_forward: bool
 
 
 def build_graph(con):
@@ -133,21 +142,44 @@ def build_graph(con):
         return {}
 
     def human_review(state: InsightState) -> dict:
-        t = state["theme"]
-        decision = interrupt({
+        t, prior, track = state["theme"], state.get("prior"), state.get("track") or {}
+        if prior and track.get("status") != "growing":
+            note = prior["reviewer_note"] or ""
+            if not note.startswith("Carried forward"):  # keep the reviewer's own words, once
+                note = (f"Carried forward: {prior['status']} on {str(prior['updated_at'])[:10]}, not re-asked "
+                        f"while the issue isn't growing." + (f" Original note: {note}" if note else ""))
+            return {"decision": {"action": "approve" if prior["status"] == "approved" else "reject",
+                                 "note": note}, "carried_forward": True}
+        payload = {
             "theme_id": t["theme_id"], "product_id": t["product_id"], "label": t["label"],
             "summary": t["summary"], "team": state["team"], "priority": state["priority"],
             "severity_score": state["severity_score"], "metrics": state["metrics"],
-        })
+        }
+        if prior:  # asked again because the issue grew since the last decision
+            payload["previous_decision"] = {
+                "status": prior["status"], "note": prior["reviewer_note"], "on": str(prior["updated_at"])[:10],
+                "reviews_then": track.get("prev_n_reviews"), "reviews_now": track.get("n_reviews"),
+            }
+        decision = interrupt(payload)
         return {"decision": decision}
 
     def create_ticket(state: InsightState) -> dict:
-        t, d = state["theme"], state.get("decision")
+        t, d, prior = state["theme"], state.get("decision"), state.get("prior")
         if d is None:
-            status, note = "auto_created", None
+            status, note = (prior["status"], prior["reviewer_note"]) if prior else ("auto_created", None)
         else:
             status = {"approve": "approved", "reject": "rejected"}.get(d.get("action"), "pending_review")
             note = d.get("note")
+        if prior:  # same issue as an existing ticket: update it in place, keep its id
+            if status == "pending_review":  # a deferred re-review must not erase the earlier decision
+                status, note = prior["status"], prior["reviewer_note"]
+            con.execute("""
+                UPDATE tickets SET theme_id = ?, theme_label = ?, team = ?, priority = ?, severity_score = ?,
+                       status = ?, reviewer_note = ?, updated_at = ?
+                WHERE ticket_id = ?
+            """, [t["theme_id"], t["label"], state["team"], state["priority"], state["severity_score"],
+                  status, note, now(), prior["ticket_id"]])
+            return {"ticket_id": prior["ticket_id"], "status": status}
         tid = new_id("tk_")
         con.execute("INSERT INTO tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             tid, t["theme_id"], t["product_id"], t["label"], state["team"], state["priority"],
@@ -184,12 +216,25 @@ def run(con, reviewer: Reviewer | None = None, auto_approve: bool = False) -> di
     graph = build_graph(con)
     with run_step(con, "insights") as (_, stats):
         con.execute("DELETE FROM tickets WHERE status IN ('auto_created', 'pending_review')")
+        # Human decisions survive re-runs: index them by the track (issue) they belong to.
+        priors = {r["track_id"]: r for r in rows(con, """
+            SELECT s.track_id, tk.ticket_id, tk.status, tk.reviewer_note, tk.updated_at
+            FROM tickets tk JOIN theme_track_runs s ON s.theme_id = tk.theme_id
+            WHERE tk.status IN ('approved', 'rejected')
+            QUALIFY row_number() OVER (PARTITION BY s.track_id ORDER BY tk.updated_at DESC) = 1
+        """)}
         themes = rows(con, "SELECT * FROM themes ORDER BY product_id, n_reviews DESC")
-        counts: dict[str, Any] = {"themes": len(themes), "P1": 0, "P2": 0, "P3": 0, "tickets": {}}
+        counts: dict[str, Any] = {"themes": len(themes), "P1": 0, "P2": 0, "P3": 0, "tickets": {},
+                                  "decisions_carried_forward": 0, "re_reviewed_because_growing": 0}
         for t in themes:
             t = {k: (str(v) if k == "created_at" else v) for k, v in t.items()}
             cfg = {"configurable": {"thread_id": t["theme_id"]}}
-            out = graph.invoke({"theme": t}, cfg)
+            track = track_of(con, t["theme_id"]) or {}
+            track = {k: (str(v) if hasattr(v, "isoformat") else v) for k, v in track.items()}
+            prior = priors.get(track.get("track_id"))
+            if prior:
+                prior = {k: (str(v) if hasattr(v, "isoformat") else v) for k, v in prior.items()}
+            out = graph.invoke({"theme": t, "track": track, "prior": prior}, cfg)
             if "__interrupt__" in out:
                 payload = out["__interrupt__"][0].value
                 if reviewer:
@@ -199,6 +244,13 @@ def run(con, reviewer: Reviewer | None = None, auto_approve: bool = False) -> di
                 else:
                     decision = {"action": "defer", "note": None}
                 out = graph.invoke(Command(resume=decision), cfg)
+                if prior:
+                    counts["re_reviewed_because_growing"] += 1
+            if out.get("carried_forward"):
+                counts["decisions_carried_forward"] += 1
+            if prior and not out.get("ticket_id"):  # dropped below P2: keep the decision linked to the issue
+                con.execute("UPDATE tickets SET theme_id = ?, theme_label = ? WHERE ticket_id = ?",
+                            [t["theme_id"], t["label"], prior["ticket_id"]])
             counts[out["priority"]] += 1
             if out.get("status"):
                 counts["tickets"][out["status"]] = counts["tickets"].get(out["status"], 0) + 1

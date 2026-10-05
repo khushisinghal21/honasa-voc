@@ -16,6 +16,7 @@ from voc.config import product_map
 from voc.db import new_id, now, run_step
 from voc.embeddings import embed
 from voc.llm import get_llm, use_llm
+from voc.pipeline import tracking
 from voc.schemas import ThemeLabel
 
 log = logging.getLogger(__name__)
@@ -133,4 +134,5 @@ def run(con) -> dict:
                                 [(tid, rid, s, r) for r, (rid, s) in enumerate(ranked)])
                 made += 1
         stats.update({"groups": len(groups), "themes": made, "noise_mentions": noise})
+        stats["tracking"] = tracking.link(con, run_id)
     return stats

@@ -188,9 +188,29 @@ def demo():
         subprocess.run([sys.executable, str(ROOT / "scripts/make_synthetic.py")], check=True)
     con = connect()
     sync_products(con)
-    _show("import (synthetic)", {"added": import_file(con, sample, "synthetic", url_col=None, id_col="review_id")})
     con.close()
-    run_all(auto_approve=True, no_input=True, limit=None)
+
+    # Two runs, two weeks apart, so theme tracking has something to compare:
+    # run 1 sees reviews older than 14 days, run 2 sees everything.
+    import json
+    from datetime import datetime, timedelta
+
+    records = [json.loads(line) for line in sample.read_text(encoding="utf-8").splitlines() if line.strip()]
+    cutoff = max(datetime.fromisoformat(r["created_at"]) for r in records) - timedelta(days=14)
+    earlier = settings.db_path.parent / "demo_run1.jsonl"
+    earlier.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records
+                                 if datetime.fromisoformat(r["created_at"]) <= cutoff) + "\n", encoding="utf-8")
+    for label, path in (("run 1: reviews up to 2 weeks ago", earlier), ("run 2: two weeks later", sample)):
+        typer.secho(f"\n######## {label}", fg="cyan", bold=True)
+        con = connect()
+        _show("import (synthetic)", {"added": import_file(con, path, "synthetic", url_col=None, id_col="review_id")})
+        con.close()
+        clean()
+        extract(None)
+        themes()
+        insights(True, True)
+        digest("demo-run-1" if path == earlier else "demo-run-2")
+    earlier.unlink(missing_ok=True)
     eval_extraction(gold=ROOT / "evals/demo_gold_synthetic.jsonl", backend="baseline")
     eval_sql_cmd()
     typer.secho(f"\nDemo done. DB: {settings.db_path}  Reports: {settings.reports_dir}", fg="green", bold=True)

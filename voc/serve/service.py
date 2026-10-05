@@ -69,6 +69,33 @@ def theme_detail(theme_id: str, max_quotes: int = 15) -> dict:
         return {"theme": _jsonable(theme)[0], "evidence": _jsonable(quotes), "tickets": _jsonable(tickets)}
 
 
+def theme_changes(product_id: str | None = None, polarity: str = "negative") -> dict:
+    """How each consumer issue moved since the previous run: new, growing, steady, shrinking or faded."""
+    where, params = ["tr.polarity = ?"], [polarity]
+    if product_id:
+        where.append("tr.product_id = ?")
+        params.append(product_id)
+    with _ro() as con:
+        runs = con.execute("SELECT count(DISTINCT run_id) FROM theme_track_runs").fetchone()[0]
+        data = rows(con, f"""
+            SELECT tr.track_id, tr.product_id, tr.aspect, tr.label, tr.status, tr.prev_n_reviews, tr.n_reviews,
+                   tr.runs_seen, tr.first_seen, tr.last_seen, s.theme_id AS current_theme_id
+            FROM theme_tracks tr
+            LEFT JOIN theme_track_runs s ON s.track_id = tr.track_id AND s.run_id = tr.last_run_id
+                                       AND tr.status <> 'faded'
+            WHERE {' AND '.join(where)}
+            ORDER BY CASE tr.status WHEN 'new' THEN 0 WHEN 'growing' THEN 1 WHEN 'faded' THEN 2
+                                    WHEN 'shrinking' THEN 3 ELSE 4 END, tr.n_reviews DESC
+        """, params)
+    by_status: dict[str, list] = {}
+    for r in _jsonable(data):
+        by_status.setdefault(r["status"], []).append(r)
+    note = ("Only one run so far, so every theme is 'new'. Run the pipeline again on fresh data to see change."
+            if runs < 2 else "Compared with the previous run. Use current_theme_id with theme_detail for quotes.")
+    return {"runs_compared": runs, "summary": {k: len(v) for k, v in by_status.items()},
+            "by_status": by_status, "note": note}
+
+
 def compare_products(product_a: str, product_b: str) -> dict:
     """Aspect-level sentiment for two products side by side, normalised per 100 relevant reviews."""
     with _ro() as con:
@@ -115,7 +142,9 @@ def get_schema() -> dict:
         "aspects.sentiment ∈ positive|negative|neutral. aspects.aspect ∈ efficacy, skin_reaction, fragrance, "
         "texture, packaging, price_value, authenticity, delivery. Always join extractions and filter "
         "is_relevant = true when counting consumer opinions. themes.polarity ∈ positive|negative. "
-        "theme_metrics.priority ∈ P1|P2|P3. reviews.lang ∈ en|hi|hinglish."
+        "theme_metrics.priority ∈ P1|P2|P3. reviews.lang ∈ en|hi|hinglish. "
+        "theme_tracks is one row per consumer issue across runs; theme_tracks.status ∈ "
+        "new|growing|steady|shrinking|faded."
     )
     return out
 

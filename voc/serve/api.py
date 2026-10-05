@@ -28,6 +28,11 @@ def themes(product_id: str | None = None, aspect: str | None = None, polarity: s
     return service.top_themes(product_id, aspect, polarity, limit)
 
 
+@app.get("/changes")
+def changes(product_id: str | None = None, polarity: str = "negative"):
+    return service.theme_changes(product_id, polarity)
+
+
 @app.get("/themes/{theme_id}")
 def theme(theme_id: str):
     out = service.theme_detail(theme_id)

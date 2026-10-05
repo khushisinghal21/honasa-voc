@@ -123,6 +123,37 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at TIMESTAMP
 );
 
+-- Themes are rebuilt every run, so theme_ids change. A track is the stable identity of one consumer
+-- issue across runs (see pipeline/tracking.py). Tracks and their snapshots are never deleted.
+CREATE TABLE IF NOT EXISTS theme_tracks (
+    track_id VARCHAR PRIMARY KEY,
+    product_id VARCHAR,
+    aspect VARCHAR,
+    polarity VARCHAR,
+    label VARCHAR,           -- latest label
+    first_seen TIMESTAMP,
+    last_seen TIMESTAMP,
+    first_run_id VARCHAR,
+    last_run_id VARCHAR,
+    runs_seen INTEGER,
+    status VARCHAR,          -- new | growing | steady | shrinking | faded
+    prev_n_reviews INTEGER,  -- reviews behind it in the previous run
+    n_reviews INTEGER,       -- reviews behind it now (0 once faded)
+    match_overlap DOUBLE,    -- why it was matched to the previous run
+    match_cosine DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS theme_track_runs (
+    track_id VARCHAR,
+    run_id VARCHAR,
+    theme_id VARCHAR,
+    label VARCHAR,
+    n_reviews INTEGER,
+    review_ids VARCHAR,      -- JSON list
+    spans VARCHAR,           -- JSON list, in rank order
+    recorded_at TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id VARCHAR,
     step VARCHAR,
@@ -135,7 +166,7 @@ CREATE TABLE IF NOT EXISTS runs (
 # Tables the read-only SQL tool may touch. raw_reviews is deliberately excluded (it holds author hashes).
 QUERYABLE_TABLES = [
     "products", "reviews", "extractions", "aspects", "themes",
-    "theme_evidence", "theme_metrics", "tickets",
+    "theme_evidence", "theme_metrics", "tickets", "theme_tracks",
 ]
 
 

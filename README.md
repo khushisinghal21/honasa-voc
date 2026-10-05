@@ -19,10 +19,13 @@ YouTube · Reddit · datasets
  themes ── multilingual embeddings of spans → HDBSCAN → Claude labels each cluster
         │
         ▼
+ tracking ─ link each theme to last run's: new · growing · steady · shrinking · faded
+        │
+        ▼
  insights ─ LangGraph: metrics → score → route → P1 pauses for human approval → ticket
         │
         ▼
- digest + MCP server (9 tools) + HTTP API          all backed by one DuckDB file
+ digest + MCP server (10 tools) + HTTP API          all backed by one DuckDB file
 ```
 
 ## What it does
@@ -34,7 +37,8 @@ YouTube · Reddit · datasets
 | **Extract** | Claude fills a Pydantic schema: relevance, 8 aspects, sentiment, severity 1–3, evidence span | Structured output that SQL can count |
 | **Verify** | Each `evidence_span` must be a verbatim substring of the comment (case/whitespace tolerant only) | **No theme can cite words a consumer didn't write** |
 | **Themes** | Embed spans (not whole reviews), cluster per product × aspect × polarity, Claude names each cluster | One review can feed a fragrance theme *and* a packaging theme |
-| **Insights** | LangGraph scores volume, negativity, safety and 4-week trend, routes by rules (Claude breaks ties), files tickets | P1 safety/trust issues stop at `interrupt()` until a person approves |
+| **Track** | Each theme is matched to the same issue in the previous run (shared reviews + span similarity) | Theme ids change every run; tracks don't. The digest leads with *what's new and what's getting worse* |
+| **Insights** | LangGraph scores volume, negativity, safety and 4-week trend, routes by rules (Claude breaks ties), files tickets | P1 safety/trust issues stop at `interrupt()` until a person approves. A decision sticks to the issue: it's carried forward next run, and only re-asked if the issue grows |
 | **Serve** | MCP tools + FastAPI over the same service layer | Ask Claude "what's going wrong with Rosemary shampoo?" and get quotes with links |
 
 Aspects: `efficacy`, `skin_reaction`, `fragrance`, `texture`, `packaging`, `price_value`, `authenticity`, `delivery`.
@@ -45,10 +49,10 @@ Aspects: `efficacy`, `skin_reaction`, `fragrance`, `texture`, `packaging`, `pric
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 voc demo          # synthetic data → full pipeline → digest + evals in reports/demo/
-pytest -q         # 30 tests
+pytest -q         # 36 tests
 ```
 
-`voc demo` runs on **synthetic template data** with the rule-based baseline and TF-IDF embeddings, so it needs no keys or downloads. It proves the plumbing works. It says nothing about real products, and every output from it is labelled as synthetic.
+`voc demo` runs the pipeline **twice, two weeks apart** (first on older reviews, then on everything), so the second digest shows what changed and which earlier decisions were carried forward. It runs on **synthetic template data** with the rule-based baseline and TF-IDF embeddings, so it needs no keys or downloads. It proves the plumbing works. It says nothing about real products, and every output from it is labelled as synthetic.
 
 ## Real run
 
@@ -105,6 +109,7 @@ Add this to `claude_desktop_config.json` (Settings → Developer → Edit config
 
 Questions to try:
 - *What are the top problems with Mamaearth Rosemary shampoo? Quote consumers.*
+- *What's new or getting worse since last week?*
 - *Compare Aqualogica and Minimalist sunscreen on texture and skin reaction.*
 - *Which packaging complaints grew in the last 4 weeks?*
 - *What share of Tea Tree face wash reviews mention dryness?* (Claude writes SQL against `get_schema`)
@@ -114,12 +119,13 @@ Questions to try:
 | `list_products` | Products, IDs, review counts |
 | `top_themes` | Ranked themes by product / aspect / polarity |
 | `theme_detail` | Metrics, routing, tickets, and verbatim quotes with source links |
+| `theme_changes` | Each issue as new / growing / steady / shrinking / faded since the last run |
 | `compare_products` | Aspect sentiment side by side, per 100 relevant reviews |
 | `search_reviews` | Hybrid BM25 + dense search with reciprocal rank fusion |
 | `get_schema` / `run_metrics_sql` | Guarded, read-only NL→SQL |
 | `list_tickets`, `get_digest` | Actions raised and the weekly digest |
 
-HTTP API: `voc serve api` → `/products`, `/themes`, `/themes/{id}`, `/search`, `/sql`, `/digest`.
+HTTP API: `voc serve api` → `/products`, `/themes`, `/changes`, `/themes/{id}`, `/search`, `/sql`, `/digest`.
 
 ## Evaluation
 
@@ -153,6 +159,7 @@ Use the baseline-vs-Claude comparison to show where the LLM earns its cost. The 
 - **HDBSCAN.** It doesn't need the number of themes up front, and it leaves one-off comments out as noise instead of forcing them into a theme.
 - **Rules first, LLM second for routing.** Ownership should be predictable and auditable. Claude only decides genuinely ambiguous cases (efficacy: R&D vs claims) and must give a rationale.
 - **Human-in-the-loop only where it matters.** Safety and authenticity themes pause for approval; routine themes auto-file. Every decision is stored in `tickets`.
+- **Decisions stick to the issue, not the run.** Themes are re-clustered every run, so their ids change. Without tracking, a safety issue someone already reviewed would come back for review every week. Each theme is matched to last run's (by shared reviews, or by span similarity for issues that continue with new reviews), the ticket is updated in place, and a person is only asked again when the issue is growing.
 - **Defence in depth on SQL.** sqlglot allowlist (SELECT only, approved tables, no file/env functions), forced row cap, *and* a read-only connection.
 - **One DuckDB file.** Every stage is inspectable with SQL, and the same schema maps directly to BigQuery.
 
@@ -161,7 +168,7 @@ Use the baseline-vs-Claude comparison to show where the LLM earns its cost. The 
 - Public comments over-represent strong opinions. These are **signals to investigate**, not market-share numbers.
 - YouTube comments on multi-product videos are noisy. The relevance check filters most of it, but not all.
 - Marketplace and quick-commerce reviews (the richest source) aren't included, because scraping them breaks their terms. Inside Honasa this would plug into first-party review feeds.
-- Themes are rebuilt from scratch each run. Tracking themes week over week would need cluster matching across runs.
+- Theme tracking matches within the same product × aspect × polarity, with thresholds tuned on synthetic data. A theme that splits in two continues as one track plus one new track, and a faded issue that comes back starts a new track. Both are worth checking on real data.
 - The HTTP MCP server has no auth. Deploy it private (below) or add an auth provider before exposing it.
 
 ## Deploy (Cloud Run)
@@ -178,12 +185,12 @@ The MCP endpoint is then `https://<service-url>/mcp`.
 ```
 voc/
   collectors/   youtube.py · reddit.py · file_import.py
-  pipeline/     clean.py · extract.py · themes.py · digest.py
+  pipeline/     clean.py · extract.py · themes.py · tracking.py · digest.py
   graph/        insight_graph.py · routing_rules.yaml
   retrieval/    hybrid.py
   serve/        service.py · mcp_server.py · api.py · sql_guard.py
   evaluation.py · labeling.py · llm.py · embeddings.py · schemas.py · db.py · cli.py
 evals/          sql_questions.yaml · gold_labels.jsonl (yours)
 scripts/        make_synthetic.py
-tests/          test_core.py · test_llm_path.py
+tests/          test_core.py · test_llm_path.py · test_tracking.py
 ```
