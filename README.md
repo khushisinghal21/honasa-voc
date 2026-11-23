@@ -1,4 +1,4 @@
-# Honasa Voice of Consumer agent (POC)
+#  Voice of Consumer agent (POC)
 
 Consumers talk about Mamaearth, The Derma Co and Aqualogica products every day in YouTube comments, Reddit threads and reviews. That feedback is scattered, unstructured, often in Hinglish, and too large to read. Signals like *"the pump jams halfway"*, *"broke me out"* or *"I think I got a fake"* reach the right team late, or never.
 
